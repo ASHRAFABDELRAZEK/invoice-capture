@@ -138,6 +138,14 @@ img{max-width:100%}
     <input id="in-cam" type="file" accept="image/*" capture="environment" hidden>
     <input id="in-gal" type="file" accept="image/*" multiple hidden>
     <p class="hint">صوّر الفاتورة بحيث يبان الـ QR واضح. صوّر واحدة ورا التانية، وكل صورة بتتقرا لوحدها وتستناك في «مراجعة». الفواتير اللي مش هتسجّلها دلوقتي بتفضل محفوظة على الجهاز ده.</p>
+    <div class="panel" style="display:flex;flex-direction:column;gap:10px">
+      <div class="bar"><strong>تثبيت الحسابات للصور الجاية</strong><span class="chip" id="pin-state">مش مثبّت</span></div>
+      <div class="seg"><button type="button" id="pin-v">سند صرف</button><button type="button" id="pin-j">قيد يومية</button></div>
+      <label>المدين (المصروف)<button type="button" class="pick" id="pin-exp"></button></label>
+      <label><span id="pin-cr-l">الدائن</span><button type="button" class="pick" id="pin-cr"></button></label>
+      <button class="btn" type="button" id="pin-clear">إلغاء التثبيت</button>
+      <p class="hint" style="margin:0">أي فاتورة تتصور وفيه حاجة مثبّتة بتاخدها بدل اقتراح التطبيق. مثلاً ثبّت «محروقات» وصوّر كل فواتير البنزين، أو ثبّت المصروف والمورد وصوّر فواتير مورد واحد.</p>
+    </div>
     <div class="panel" id="recent-wrap">
       <div class="bar"><strong>آخر المصوّر</strong><button class="btn out" id="go-rev" type="button">للمراجعة</button></div>
       <div class="thumbs" id="recent" style="margin-top:10px"></div>
@@ -305,7 +313,7 @@ async function addFiles(files){
     if(t){rec.qr=true;rec.seller=t[1]||'';rec.vat=digits(t[2]);const iso=t[3]||'';rec.date=isoToDMY(iso);const tm=iso.match(/T?(\d{2}:\d{2})/);rec.time=tm?tm[1]:'';
       rec.total=n2(t[4]);rec.vatAmt=n2(t[5]);rec.status='qr'}
     else {rec.qr=false;rec.status=raw?'badqr':'noqr'}
-    applyDefaults(rec); await put(rec); renderAll();
+    applyDefaults(rec); applyPin(rec); await put(rec); renderAll();
   }
 }
 $('#in-cam').addEventListener('change',e=>{addFiles([...e.target.files]);e.target.value=''});
@@ -447,7 +455,7 @@ const pt=document.title.split(' - ').map(x=>x.trim()).filter(x=>x&&!/^(daftra|er
 console.log('اتنزّل ملف الدليل — '+out.length+' حساب')})()`;
 $('#copy-snip').onclick=async()=>{try{await navigator.clipboard.writeText(SNIP);toast('اتنسخ السكريبت')}catch(e){const b=$('#snip-box');b.hidden=false;b.value=SNIP;b.select();toast('اختار النص وانسخه بإيدك')}};
 let confirmSwitch=null;
-function setChart(c){CHART=c;try{localStorage.setItem('jh-chart',JSON.stringify(c))}catch(e){} renderAll()}
+function setChart(c){CHART=c;try{localStorage.setItem('jh-chart',JSON.stringify(c))}catch(e){} if(typeof loadPin==='function')loadPin(); renderAll()}
 function parseChart(txt){txt=String(txt||'').replace(/^﻿/,'').trim();const i=txt.indexOf('{'),j=txt.lastIndexOf('}');
   if(i<0||j<i)return {err:'الملف فاضي أو مش JSON (أوله: '+txt.slice(0,30)+')'};let c;try{c=JSON.parse(txt.slice(i,j+1))}catch(x){return {err:'الملف مقطوع أو اتغيّر أثناء الإرسال'}}
   if(!c||!Array.isArray(c.acc)||!c.acc.length)return {err:'الملف مفيهوش حسابات'};return {c}}
@@ -501,8 +509,25 @@ $('#pk-q').addEventListener('input',renderPicker);
 $('#pk-close').onclick=()=>{$('#picker').hidden=true;PK=null};
 $('#picker').addEventListener('click',async e=>{if(e.target.id==='picker'){$('#picker').hidden=true;PK=null;return}const b=e.target.closest('.pk-item');if(!b||!PK)return;
   const {r,f}=PK;r[f]=b.dataset.id;if(f==='sup'&&!r.seller){const s2=byId(r[f]);if(s2)r.seller=s2.name}
-  await put(r);$('#picker').hidden=true;PK=null;renderAll()});
+  if(r.__pin)savePin();else await put(r);$('#picker').hidden=true;PK=null;renderAll()});
 $('#rev-q').addEventListener('input',renderAll);$('#acc-q').addEventListener('input',renderAcc);
+
+// ===== التثبيت =====
+const PIN_KEY=()=>'ic-pin:'+(CHART.site||'');let PIN={__pin:true};
+function loadPin(){try{PIN=Object.assign({__pin:true},JSON.parse(localStorage.getItem(PIN_KEY())||'{}'))}catch(e){PIN={__pin:true}}renderPin()}
+function savePin(){try{localStorage.setItem(PIN_KEY(),JSON.stringify(PIN))}catch(e){}renderPin()}
+function pinCrF(){return PIN.type==='j'?'sup':'tre'}
+function renderPin(){const t=PIN.type||'';$('#pin-v').className=t==='v'?'on v':'';$('#pin-j').className=t==='j'?'on j':'';
+  $('#pin-exp').textContent=(PIN.exp?accLabel(PIN.exp):'مش مثبّت — التطبيق يقترح')+' ▾';
+  $('#pin-cr-l').textContent=PIN.type==='j'?'الدائن (المورد)':'الدائن (الخزنة)';
+  $('#pin-cr').textContent=(PIN[pinCrF()]?accLabel(PIN[pinCrF()]):'مش مثبّت — التطبيق يقترح')+' ▾';
+  const on=!!(PIN.type||PIN.exp||PIN.sup||PIN.tre);$('#pin-state').textContent=on?'مثبّت ✓':'مش مثبّت';$('#pin-state').className='chip'+(on?' j':'')}
+function applyPin(r){if(PIN.type)r.type=PIN.type;if(PIN.exp)r.exp=PIN.exp;if(r.type==='j'&&PIN.sup){r.sup=PIN.sup;if(!r.seller){const a=byId(PIN.sup);if(a)r.seller=a.name}}if(r.type==='v'&&PIN.tre)r.tre=PIN.tre}
+$('#pin-v').onclick=()=>{PIN.type=PIN.type==='v'?'':'v';savePin()};$('#pin-j').onclick=()=>{PIN.type=PIN.type==='j'?'':'j';savePin()};
+$('#pin-exp').onclick=()=>{if(!CHART.acc.length){toast('حمّل الدليل الأول');return}openPicker(PIN,'exp','exp')};
+$('#pin-cr').onclick=()=>{if(!CHART.acc.length){toast('حمّل الدليل الأول');return}const f=pinCrF();openPicker(PIN,f,f)};
+$('#pin-clear').onclick=()=>{PIN={__pin:true};savePin();toast('اتلغى التثبيت')};
+loadPin();
 
 // ===== مثال =====
 async function addDemo(){const rec={id:'demo'+Date.now(),created:Date.now(),example:true,status:'qr',qr:true,sel:true,type:'',seller:'مورد تجريبي (مثال)',vat:'300000000000003',invno:'مثال-1',date:'08/10/2026',time:'',total:1150,vatAmt:150,exp:'',sup:'',tre:'',note:''};
