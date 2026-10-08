@@ -422,7 +422,7 @@ if(t==='supplier'||t==='other_credit')role='sup';else if(t==='treasury'||t==='st
 else if(t!=='asset_deprecation_expense'&&(/^5/.test(x.code)||t==='asset'||t==='purchases'||t==='purchases_shipping'))role='exp';
 if(role)out.push({id:String(x.id),code:x.code,name:x.name.trim(),role,vat:t==='supplier'?(vat[x.entity_id]||''):''})});
 const d=new Date(),at=String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
-const pt=document.title.split(' - ').map(x=>x.trim()).filter(x=>x&&!/^daftra$/i.test(x));const co=pt[pt.length-1]||location.hostname;const js=JSON.stringify({app:'jh-chart',site:location.hostname,company:co,at,acc:out});const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([js],{type:'application/json'}));l.download='chart-'+location.hostname.split('.')[0]+'.json';l.click();
+const pt=document.title.split(' - ').map(x=>x.trim()).filter(x=>x&&!/^(daftra|error)$/i.test(x));const co=pt[pt.length-1]||location.hostname;const js=JSON.stringify({app:'jh-chart',site:location.hostname,company:co,at,acc:out});const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([js],{type:'application/json'}));l.download='chart-'+location.hostname.split('.')[0]+'.json';l.click();
 console.log('اتنزّل ملف الدليل — '+out.length+' حساب')})()`;
 $('#copy-snip').onclick=async()=>{try{await navigator.clipboard.writeText(SNIP);toast('اتنسخ السكريبت')}catch(e){const b=$('#snip-box');b.hidden=false;b.value=SNIP;b.select();toast('اختار النص وانسخه بإيدك')}};
 let confirmSwitch=null;
