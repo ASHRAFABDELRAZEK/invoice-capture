@@ -453,17 +453,20 @@ $('#bulk-v').onclick=()=>bulk('v');$('#bulk-j').onclick=()=>bulk('j');
 $('#export').onclick=async()=>{const S=pending().filter(r=>r.sel);const bad=S.filter(r=>problems(r).length);
   if(bad.length){toast(bad.length+' فاتورة ناقصة بيانات — كمّلها أو شيل تحديدها');return}
   if(!window.XLSX){toast('مكتبة الإكسيل مااتحملتش، اتأكد من النت');return}
+  const now=new Date(),pfx='IC'+String(now.getFullYear()).slice(2)+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0')+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0')+'-';
+  const D=[['Journal Code','Journal Date','Currency','Journal Description','Account Name','Transaction Description','Tags','Cost Center','Tax','Debit','Credit']];
   const J=[['رقم القيد','التاريخ','الوصف','id الحساب','كود الحساب','اسم الحساب','مدين','دائن','النوع','المورد','الرقم الضريبي','رقم الفاتورة']];
   const H=[['م','النوع','التاريخ','المورد','الرقم الضريبي','رقم الفاتورة','الصافي','الضريبة','الإجمالي','حساب المصروف','الطرف الدائن','طريقة القراءة']];
   S.forEach((r,i)=>{const {desc,L,net,vat,total}=linesOf(r);const T=r.type==='j'?'قيد يومية':'سند صرف';
-    L.forEach(l=>{const a=byId(l[0]);J.push([i+1,r.date,desc,Number(l[0]),a?a.code:'',a?a.name:'',l[2]||0,l[3]||0,T,r.seller,r.vat,r.invno])});
+    L.forEach(l=>{const a=byId(l[0]);D.push([pfx+(i+1),r.date,'SAR',desc,a?a.code:'',desc+(l[2]&&l[0]===vatId()?' - ضريبة':''),'','','',l[2]||0,l[3]||0]);J.push([i+1,r.date,desc,Number(l[0]),a?a.code:'',a?a.name:'',l[2]||0,l[3]||0,T,r.seller,r.vat,r.invno])});
     H.push([i+1,T,r.date,r.seller,r.vat,r.invno,net,vat,total,accLabel(r.exp),accLabel(r.type==='j'?r.sup:r.tre),r.qr?'QR':'يدوي'])});
   const wb=XLSX.utils.book_new();
   const mk=(rows,w)=>{const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=w.map(x=>({wch:x}));ws['!views']=[{RTL:true}];ws['!autofilter']={ref:ws['!ref']};return ws};
   const wsJ=mk(J,[9,12,34,9,11,32,12,12,11,30,17,13]),wsH=mk(H,[5,11,12,30,17,13,12,12,12,28,30,12]);
   [wsJ,wsH].forEach(ws=>{Object.keys(ws).forEach(k=>{const c=ws[k];if(c&&c.t==='n')c.z='#,##0.00;(#,##0.00);"-"'})});
   wb.Workbook={Views:[{RTL:true}]};
-  XLSX.utils.book_append_sheet(wb,wsJ,'قيود للاستيراد');XLSX.utils.book_append_sheet(wb,wsH,'الفواتير');
+  const wsD=XLSX.utils.aoa_to_sheet(D);wsD['!cols']=[14,12,7,34,14,38,6,10,6,12,12].map(x=>({wch:x}));Object.keys(wsD).forEach(k=>{const c=wsD[k];if(c&&c.t==='n')c.z='0.00'});
+  XLSX.utils.book_append_sheet(wb,wsD,'استيراد دفترة');XLSX.utils.book_append_sheet(wb,wsJ,'قيود للاستيراد');XLSX.utils.book_append_sheet(wb,wsH,'الفواتير');
   const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});const d=new Date(),dd=String(d.getDate()).padStart(2,'0')+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+d.getFullYear();
   const name='فواتير '+(CHART.company||CHART.site||'')+' '+dd+'.xlsx';
   try{const u=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
