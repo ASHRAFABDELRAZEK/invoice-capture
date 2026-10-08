@@ -8,7 +8,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>فواتير جهينة</title>
+<title>تصوير الفواتير</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
 <style>
@@ -108,7 +108,7 @@ img{max-width:100%}
 
 <div class="wrap">
   <header>
-    <div class="brand"><h1>فواتير جهينة</h1><small>مؤسسة مياه جهينة · دفترة</small></div>
+    <div class="brand"><h1>تصوير الفواتير</h1><small id="co">لسه مفيش شركة</small></div>
     <div class="tabs" role="tablist">
       <button role="tab" id="tab-cap" aria-selected="true" data-tab="cap">تصوير</button>
       <button role="tab" id="tab-rev" aria-selected="false" data-tab="rev">مراجعة <span class="count" id="c-rev">0</span></button>
@@ -170,12 +170,13 @@ img{max-width:100%}
   </div>
   <div class="panel" style="display:flex;flex-direction:column;gap:10px">
     <strong>تحميل ملف الدليل</strong>
-    <p class="hint">المحاسب بيبعتلك ملف اسمه <b>juhayna-chart.json</b> (على الواتساب مثلاً). احفظه على الموبايل وبعدين اختاره من هنا.</p>
+    <p class="hint">المحاسب بيبعتلك ملف الدليل (اسمه بيبدأ بـ <b>chart-</b>) (على الواتساب مثلاً). احفظه على الموبايل وبعدين اختاره من هنا.</p>
+    <div class="confirm" id="switch-box" hidden><span id="switch-txt"></span><button class="btn danger" type="button" id="switch-yes">أيوه غيّر</button><button class="btn" type="button" id="switch-no">لأ</button></div>
     <label class="btn pri" for="chart-file" style="display:flex;align-items:center;justify-content:center">اختيار ملف الدليل</label>
     <input id="chart-file" type="file" accept=".json,application/json" hidden>
   </div>
   <details class="panel"><summary>للمحاسب: طلّع ملف الدليل من دفترة</summary>
-    <p class="hint">افتح دفترة جهينة على الكمبيوتر، واضغط F12 وافتح Console. الصق السكريبت ده واضغط Enter. هينزّل ملف juhayna-chart.json، ابعته لكل اللي شغالين على التطبيق. وكل ما تعدّل في الحسابات أو الموردين، طلّع الملف تاني وابعته.</p>
+    <p class="hint">افتح حساب الشركة على دفترة من الكمبيوتر، واضغط F12 وافتح Console. الصق السكريبت ده واضغط Enter. هينزّل ملف الدليل باسم الشركة، ابعته لكل اللي شغالين على التطبيق. وكل ما تعدّل في الحسابات أو الموردين، طلّع الملف تاني وابعته.</p>
     <button class="btn out" type="button" id="copy-snip">نسخ السكريبت</button>
     <textarea id="snip-box" readonly hidden style="width:100%;min-height:120px;font:12px monospace;direction:ltr;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:9px"></textarea>
   </details>
@@ -216,15 +217,15 @@ function lev1(a,b){ // فرق رقم واحد بالظبط (حذف/إضافة/ت
 
 // ===== التخزين (IndexedDB على الجهاز) =====
 let DB=null; const MEM={inv:new Map()};
-function idb(){return new Promise(res=>{try{const r=indexedDB.open('juhayna-invoices',1);
+function idb(){return new Promise(res=>{try{const r=indexedDB.open('invoice-capture',1);
   r.onupgradeneeded=()=>{r.result.createObjectStore('inv',{keyPath:'id'})};
   r.onsuccess=()=>res(r.result); r.onerror=()=>res(null)}catch(e){res(null)}})}
 async function put(rec){MEM.inv.set(rec.id,rec); if(!DB)return; try{await new Promise((ok,ko)=>{const tx=DB.transaction('inv','readwrite');tx.objectStore('inv').put(rec);tx.oncomplete=ok;tx.onerror=ko})}catch(e){}}
 async function del(id){MEM.inv.delete(id); const u=URLS.get(id); if(u){URL.revokeObjectURL(u);URLS.delete(id)} if(!DB)return; try{DB.transaction('inv','readwrite').objectStore('inv').delete(id)}catch(e){}}
 async function loadAll(){ if(!DB)return; try{const all=await new Promise((ok,ko)=>{const r=DB.transaction('inv').objectStore('inv').getAll();r.onsuccess=()=>ok(r.result);r.onerror=ko}); all.forEach(r=>MEM.inv.set(r.id,r))}catch(e){} }
-const LEARN_KEY='jh-learn';
-function learned(){try{return JSON.parse(localStorage.getItem(LEARN_KEY)||'{}')}catch(e){return {}}}
-function learn(r){ const k=vkey(r.vat); if(!k)return; try{const L=learned(); L[k]={type:r.type,exp:r.exp,cr:r.type==='j'?r.sup:r.tre,name:r.seller}; localStorage.setItem(LEARN_KEY,JSON.stringify(L))}catch(e){} }
+const LEARN_KEY=()=>'jh-learn:'+(CHART.site||'');
+function learned(){try{return JSON.parse(localStorage.getItem(LEARN_KEY())||'{}')}catch(e){return {}}}
+function learn(r){ const k=vkey(r.vat); if(!k)return; try{const L=learned(); L[k]={type:r.type,exp:r.exp,cr:r.type==='j'?r.sup:r.tre,name:r.seller}; localStorage.setItem(LEARN_KEY(),JSON.stringify(L))}catch(e){} }
 
 const URLS=new Map(); const imgUrl=r=>{if(!r.img)return '';if(!URLS.has(r.id))URLS.set(r.id,URL.createObjectURL(r.img));return URLS.get(r.id)};
 const pending=()=>[...MEM.inv.values()].filter(r=>!r.done).sort((a,b)=>b.created-a.created);
@@ -352,6 +353,7 @@ function renderAll(){flagDups();const P=pending(),G=logged(),S=P.filter(r=>r.sel
     const dm=$('#demo'); if(dm)dm.onclick=addDemo;}
   if(TAB==='acc')renderAcc();
   $('#nochart').hidden=!!CHART.acc.length;
+  $('#co').textContent=CHART.acc.length?(CHART.company||CHART.site)+' · دفترة':'لسه مفيش شركة';
   if(TAB==='log')$('#loglist').innerHTML=G.length?G.map(r=>'<article class="card" data-id="'+r.id+'"><div class="row">'+(r.img?'<img src="'+imgUrl(r)+'" alt="">':'')+
     '<div class="main"><div class="t1"><span class="name">'+esc(r.seller||'مورد')+'</span><span class="amt">'+fmt(r.total)+'</span></div>'+
     '<div class="sub">'+(r.date||'')+' · '+(r.type==='j'?'قيد يومية':'سند صرف')+' · اتصدّرت '+new Date(r.done).toLocaleDateString('en-GB')+'</div>'+
@@ -394,7 +396,7 @@ $('#export').onclick=async()=>{const S=pending().filter(r=>r.sel);const bad=S.fi
   wb.Workbook={Views:[{RTL:true}]};
   XLSX.utils.book_append_sheet(wb,wsJ,'قيود للاستيراد');XLSX.utils.book_append_sheet(wb,wsH,'الفواتير');
   const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});const d=new Date(),dd=String(d.getDate()).padStart(2,'0')+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+d.getFullYear();
-  const name='فواتير جهينة '+dd+'.xlsx';
+  const name='فواتير '+(CHART.company||CHART.site||'')+' '+dd+'.xlsx';
   try{const u=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
     const ln=document.createElement('a');ln.href=u;ln.download=name;document.body.appendChild(ln);ln.click();ln.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);
     const now=Date.now();for(const r of S){if(!r.example)learn(r);r.done=now;r.sel=false;await put(r)}renderAll();toast('اتصدّر '+S.length+' فاتورة واتنقلوا لـ«المسجّل»')}
@@ -409,18 +411,24 @@ if(t==='supplier'||t==='other_credit')role='sup';else if(t==='treasury'||t==='st
 else if(t!=='asset_deprecation_expense'&&(/^5/.test(x.code)||t==='asset'||t==='purchases'||t==='purchases_shipping'))role='exp';
 if(role)out.push({id:String(x.id),code:x.code,name:x.name.trim(),role,vat:t==='supplier'?(vat[x.entity_id]||''):''})});
 const d=new Date(),at=String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
-const js=JSON.stringify({app:'jh-chart',site:location.hostname,at,acc:out});const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([js],{type:'application/json'}));l.download='juhayna-chart.json';l.click();
-console.log('اتنزّل juhayna-chart.json — '+out.length+' حساب')})()`;
+const co=(document.title.split(' - ').slice(-2,-1)[0]||location.hostname).trim();const js=JSON.stringify({app:'jh-chart',site:location.hostname,company:co,at,acc:out});const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([js],{type:'application/json'}));l.download='chart-'+location.hostname.split('.')[0]+'.json';l.click();
+console.log('اتنزّل ملف الدليل — '+out.length+' حساب')})()`;
 $('#copy-snip').onclick=async()=>{try{await navigator.clipboard.writeText(SNIP);toast('اتنسخ السكريبت')}catch(e){const b=$('#snip-box');b.hidden=false;b.value=SNIP;b.select();toast('اختار النص وانسخه بإيدك')}};
+let confirmSwitch=null;
 function setChart(c){CHART=c;try{localStorage.setItem('jh-chart',JSON.stringify(c))}catch(e){} renderAll()}
 $('#chart-file').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;let c;
   try{c=JSON.parse(await f.text())}catch(x){toast('الملف ده مش ملف الدليل');return}
   if(!c||c.app!=='jh-chart'||!Array.isArray(c.acc)||!c.acc.length){toast('الملف ده مش ملف الدليل');return}
-  if(c.site&&!/juhayna-water/.test(c.site)){toast('ده دليل شركة تانية ('+c.site+')');return}
-  c.acc.forEach(a=>a.id=String(a.id));
+  const switching=CHART.site&&c.site&&CHART.site!==c.site;
+  if(switching&&pending().length&&!confirmSwitch){confirmSwitch=c;renderAll();$('#switch-box').hidden=false;$('#switch-txt').textContent='عندك '+pending().length+' فاتورة مستنية على «'+(CHART.company||CHART.site)+'». تكمّل وتغيّر الشركة؟';return}
+  confirmSwitch=null;
+  await applyChart(c);});
+async function applyChart(c){c.acc.forEach(a=>a.id=String(a.id));
   const gone=[...MEM.inv.values()].filter(r=>!r.done&&[r.exp,r.sup,r.tre].some(id=>id&&!c.acc.find(a=>a.id===String(id))));
   setChart(c);for(const r of pending())if(!r.exp&&!r.sup){applyDefaults(r);await put(r)}renderAll();
-  toast('اتحمّل الدليل: '+c.acc.length+' حساب'+(gone.length?' · '+gone.length+' فاتورة حسابها اتشال، راجعها':''))});
+  toast('اتحمّل دليل '+(c.company||c.site||'')+': '+c.acc.length+' حساب'+(gone.length?' · '+gone.length+' فاتورة حسابها مش موجود، راجعها':''))}
+document.addEventListener('click',async e=>{if(e.target.id==='switch-yes'){const c=confirmSwitch;confirmSwitch=null;$('#switch-box').hidden=true;if(c)await applyChart(c)}
+  if(e.target.id==='switch-no'){confirmSwitch=null;$('#switch-box').hidden=true}});
 function renderAcc(){const R={exp:'مصروفات',sup:'موردين',tre:'خزائن وعهد',vat:'ضريبة'};
   $('#acc-info').textContent=CHART.acc.length?'تاريخ الملف '+CHART.at+' · '+CHART.acc.length+' حساب':'لسه متحمّلش دليل — من غيره مش هتقدر تختار الحسابات';
   $('#acc-list').innerHTML=CHART.acc.length?'<table class="lines"><tr><th>id</th><th>الكود</th><th>الاسم</th><th>النوع</th><th>رقم ضريبي</th></tr>'+CHART.acc.map(a=>'<tr><td>'+esc(a.id)+'</td><td>'+esc(a.code)+'</td><td>'+esc(a.name)+'</td><td>'+(R[a.role]||'')+'</td><td>'+esc(a.vat||'')+'</td></tr>').join('')+'</table>':'<p class="hint">مفيش.</p>'}
