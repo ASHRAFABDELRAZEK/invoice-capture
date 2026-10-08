@@ -93,6 +93,13 @@ input.num{font-variant-numeric:tabular-nums;direction:ltr;text-align:right}
 .foot{position:fixed;inset-inline:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));z-index:6}
 .foot .in{max-width:640px;margin:0 auto;display:flex;gap:8px;align-items:center}
 .foot .in .btn.pri{flex:1;min-height:50px;font-size:16px}
+.pick{font:inherit;font-size:15px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:9px;min-height:42px;padding:6px 10px;width:100%;text-align:right;cursor:pointer}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet .in{background:var(--surface);width:100%;max-width:640px;max-height:85%;border-radius:16px 16px 0 0;padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:10px}
+.pk-list{overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:120px}
+.pk-item{font:inherit;text-align:right;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:9px;padding:10px;cursor:pointer;display:flex;justify-content:space-between;gap:8px}
+.pk-item.on{border-color:var(--accent);background:var(--accent-soft)}
+.pk-item small{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .toast{position:fixed;inset-inline:16px;bottom:90px;max-width:608px;margin:0 auto;background:var(--fg);color:var(--bg);padding:12px 14px;border-radius:12px;font-size:14px;z-index:9}
 .empty{text-align:center;padding:30px 10px;color:var(--muted)}
 .confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bad-soft);padding:8px;border-radius:10px;font-size:13px;color:var(--bad)}
@@ -153,6 +160,7 @@ img{max-width:100%}
       </div>
     </div>
     <div class="panel" id="nochart" hidden style="background:var(--warn-soft);color:var(--warn);border-color:var(--warn)">لسه متحمّلش دليل الحسابات. روح تبويب «الدليل» وحمّل الملف اللي جالك من المحاسب.</div>
+    <label for="rev-q" class="panel">بحث في الفواتير<input id="rev-q" type="search" placeholder="اسم المورد، الرقم الضريبي، أو المبلغ" autocomplete="off"></label>
     <div id="list" style="display:flex;flex-direction:column;gap:10px"></div>
   </section>
 
@@ -190,12 +198,16 @@ img{max-width:100%}
     <button class="btn out" type="button" id="copy-snip">نسخ السكريبت</button>
     <textarea id="snip-box" readonly hidden style="width:100%;min-height:120px;font:12px monospace;direction:ltr;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:9px"></textarea>
   </details>
-  <div class="panel"><strong>الحسابات الحالية</strong><div id="acc-list" style="overflow-x:auto;margin-top:8px"></div></div>
+  <div class="panel"><strong>الحسابات الحالية</strong><input id="acc-q" type="search" placeholder="بحث بالاسم أو الكود أو id" autocomplete="off" aria-label="بحث في الحسابات" style="margin-top:8px"><div id="acc-list" style="overflow-x:auto;margin-top:8px"></div></div>
 </section>
 
 <div class="foot" id="foot" hidden><div class="in">
   <button class="btn pri" id="export" type="button">تصدير المحدد إكسيل (0)</button>
 </div></div>
+<div class="sheet" id="picker" hidden><div class="in" role="dialog" aria-labelledby="pk-title">
+  <div class="bar"><strong id="pk-title"></strong><button class="btn" type="button" id="pk-close">إقفال</button></div>
+  <label for="pk-q">بحث بالاسم أو الكود<input id="pk-q" type="search" placeholder="اكتب جزء من الاسم أو الكود" autocomplete="off"></label>
+  <div class="pk-list" id="pk-list"></div></div></div>
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
@@ -316,6 +328,13 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
 $('#go-rev').addEventListener('click',()=>setTab('rev'));
 
 const opts=(role,v,ph)=>'<option value="">'+ph+'</option>'+listRole(role).map(a=>'<option value="'+a[0]+'"'+(a[0]===String(v)?' selected':'')+'>'+esc(a[1]+' - '+a[2])+'</option>').join('');
+const pickBtn=(r,f,role,ph)=>'<button type="button" class="pick" data-act="pick" data-f="'+f+'" data-role="'+role+'">'+esc(r[f]?accLabel(r[f]):ph)+' ▾</button>';
+const norm=t=>String(t||'').replace(/[\u064B-\u0652\u0640]/g,'').replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).toLowerCase();
+const hit=(hay,q)=>{const h=norm(hay);return norm(q).split(/\s+/).filter(Boolean).every(w=>h.includes(w))};
+let PK=null;
+function openPicker(r,f,role){PK={r,f,role};$('#pk-title').textContent={exp:'اختار حساب المصروف',sup:'اختار المورد',tre:'اختار الخزنة'}[role];$('#pk-q').value='';renderPicker();$('#picker').hidden=false;setTimeout(()=>$('#pk-q').focus(),50)}
+function renderPicker(){const q=$('#pk-q').value,L=listRole(PK.role).filter(a=>!q||hit(a[1]+' '+a[2]+' '+a[0]+' '+((byId(a[0])||{}).vat||''),q));
+  $('#pk-list').innerHTML=L.length?L.slice(0,200).map(a=>'<button type="button" class="pk-item'+(a[0]===String(PK.r[PK.f])?' on':'')+'" data-id="'+a[0]+'"><span>'+esc(a[2])+'</span><small>'+esc(a[1])+'</small></button>').join(''):'<p class="hint">مفيش نتايج. جرّب كلمة تانية أو الكود.</p>'}
 function statusChips(r){const c=[];
   if(r.status==='reading')c.push('<span class="chip">جاري القراءة…</span>');
   else if(r.qr)c.push('<span class="chip j">QR ✓</span>');
@@ -343,9 +362,9 @@ function cardHTML(r){const P=problems(r),{L}=linesOf(r),ex=r.example?'<span clas
   '<label for="f-total-'+r.id+'">الإجمالي شامل الضريبة<input class="num" inputmode="decimal" id="f-total-'+r.id+'" data-f="total" value="'+esc(r.total)+'"></label>'+
   '<label for="f-vatAmt-'+r.id+'">مبلغ الضريبة<input class="num" inputmode="decimal" id="f-vatAmt-'+r.id+'" data-f="vatAmt" value="'+esc(r.vatAmt)+'"></label>'+
   '<label for="f-net-'+r.id+'">الصافي قبل الضريبة<input class="num" id="f-net-'+r.id+'" value="'+fmt(n2(r.total)-n2(r.vatAmt))+'" readonly></label>'+
-  '<label class="full" for="f-exp-'+r.id+'">حساب المصروف (مدين)<select id="f-exp-'+r.id+'" data-f="exp">'+opts('exp',r.exp,'اختر الحساب')+'</select></label>'+
-  (r.type==='j'?'<label class="full" for="f-sup-'+r.id+'">حساب المورد (دائن)<select id="f-sup-'+r.id+'" data-f="sup">'+opts('sup',r.sup,'اختر المورد')+'</select></label>'
-   :'<label class="full" for="f-tre-'+r.id+'">اتدفع من (دائن)<select id="f-tre-'+r.id+'" data-f="tre">'+opts('tre',r.tre,'اختر الخزنة')+'</select></label>')+
+  '<label class="full">حساب المصروف (مدين)'+pickBtn(r,'exp','exp','اختر الحساب')+'</label>'+
+  (r.type==='j'?'<label class="full">حساب المورد (دائن)'+pickBtn(r,'sup','sup','اختر المورد')+'</label>'
+   :'<label class="full">اتدفع من (دائن)'+pickBtn(r,'tre','tre','اختر الخزنة')+'</label>')+
   '<div class="full" style="overflow-x:auto"><table class="lines"><tr><th>الحساب</th><th>مدين</th><th>دائن</th></tr>'+
    L.map(l=>'<tr><td>'+esc(l[1])+'</td><td>'+(l[2]?fmt(l[2]):'')+'</td><td>'+(l[3]?fmt(l[3]):'')+'</td></tr>').join('')+'</table></div>'+
   '<div class="full" style="display:flex;gap:8px;flex-wrap:wrap">'+
@@ -359,7 +378,8 @@ function renderAll(){flagDups();const P=pending(),G=logged(),S=P.filter(r=>r.sel
   $('#export').textContent='تصدير المحدد إكسيل ('+S.length+')';$('#export').disabled=!S.length;
   $('#recent').innerHTML=P.slice(0,8).map(r=>'<div class="thumb '+(r.qr?'ok':(r.status==='reading'?'':'noqr'))+'">'+(r.img?'<img src="'+imgUrl(r)+'" alt="">':'')+'<span>'+(r.status==='reading'?'جاري…':r.qr?'QR ✓':'بدون QR')+'</span></div>').join('')||'<p class="hint" style="grid-column:1/-1">لسه مفيش صور.</p>';
   if(TAB==='rev'){const keepOpen=new Set([...document.querySelectorAll('#list details[open]')].map(d=>d.closest('.card').dataset.id));
-    $('#list').innerHTML=P.length?P.map(cardHTML).join(''):'<div class="empty">مفيش فواتير مستنية. ابدأ من «تصوير».<br><br><button class="btn out" type="button" id="demo">جرّب بفاتورة مثال</button></div>';
+    const RQ=$('#rev-q').value,PF=RQ?P.filter(r=>hit([r.seller,r.vat,r.invno,r.date,r.total,fmt(r.total)].join(' '),RQ)):P;
+    $('#list').innerHTML=P.length?(PF.length?PF.map(cardHTML).join(''):'<div class="empty">مفيش فاتورة بالبحث ده.</div>'):'<div class="empty">مفيش فواتير مستنية. ابدأ من «تصوير».<br><br><button class="btn out" type="button" id="demo">جرّب بفاتورة مثال</button></div>';
     keepOpen.forEach(id=>{const d=document.querySelector('.card[data-id="'+id+'"] details');if(d)d.open=true});
     const dm=$('#demo'); if(dm)dm.onclick=addDemo;}
   if(TAB==='acc')renderAcc();
@@ -377,9 +397,10 @@ async function onList(e){const card=e.target.closest('.card');if(!card)return;co
   else if(a==='type'){r.type=e.target.dataset.v;if(r.type==='j'&&!r.sup)r.sup=matchSupplier(r.vat).acc;if(r.type==='v'&&!r.tre){const t=listRole('tre')[0];r.tre=t?t[0]:''}await put(r);renderAll()}
   else if(a==='askdel'){CONF.add(r.id);renderAll()} else if(a==='nodel'){CONF.delete(r.id);renderAll()}
   else if(a==='del'){CONF.delete(r.id);await del(r.id);renderAll();toast('اتمسحت')}
+  else if(a==='pick'){openPicker(r,e.target.closest('[data-f]').dataset.f,e.target.closest('[data-role]').dataset.role)}
   else if(a==='back'){r.done=0;r.sel=true;await put(r);renderAll();toast('رجعت للمراجعة')}
   }
-$('#list').addEventListener('click',e=>{if(e.target.dataset.act&&e.target.tagName==='BUTTON')onList(e)});
+$('#list').addEventListener('click',e=>{const b=e.target.closest('button[data-act]');if(b){if(b!==e.target)Object.defineProperty(e,'target',{value:b});onList(e)}});
 $('#list').addEventListener('change',async e=>{if(e.target.dataset.act==='sel')return onList(e);const f=e.target.dataset.f;if(!f)return;const r=MEM.inv.get(e.target.closest('.card').dataset.id);
   let v=e.target.value; if(f==='vat')v=digits(v); if(f==='total'||f==='vatAmt')v=n2(v); if(f==='date')v=isoToDMY(v)||v; r[f]=v;
   if(f==='vat'){const m=matchSupplier(v);r.vatWarn=m.warn;if(m.acc&&!r.sup)r.sup=m.acc}
@@ -446,7 +467,7 @@ document.addEventListener('click',async e=>{if(e.target.id==='switch-yes'){const
   if(e.target.id==='switch-no'){confirmSwitch=null;$('#switch-box').hidden=true}});
 function renderAcc(){const R={exp:'مصروفات',sup:'موردين',tre:'خزائن وعهد',vat:'ضريبة'};
   $('#acc-info').textContent=CHART.acc.length?'تاريخ الملف '+CHART.at+' · '+CHART.acc.length+' حساب':'لسه متحمّلش دليل — من غيره مش هتقدر تختار الحسابات';
-  $('#acc-list').innerHTML=CHART.acc.length?'<table class="lines"><tr><th>id</th><th>الكود</th><th>الاسم</th><th>النوع</th><th>رقم ضريبي</th></tr>'+CHART.acc.map(a=>'<tr><td>'+esc(a.id)+'</td><td>'+esc(a.code)+'</td><td>'+esc(a.name)+'</td><td>'+(R[a.role]||'')+'</td><td>'+esc(a.vat||'')+'</td></tr>').join('')+'</table>':'<p class="hint">مفيش.</p>'}
+  $('#acc-list').innerHTML=CHART.acc.length?'<table class="lines"><tr><th>id</th><th>الكود</th><th>الاسم</th><th>النوع</th><th>رقم ضريبي</th></tr>'+CHART.acc.filter(a=>{const q=$('#acc-q').value;return !q||hit(a.id+' '+a.code+' '+a.name+' '+(a.vat||''),q)}).map(a=>'<tr><td>'+esc(a.id)+'</td><td>'+esc(a.code)+'</td><td>'+esc(a.name)+'</td><td>'+(R[a.role]||'')+'</td><td>'+esc(a.vat||'')+'</td></tr>').join('')+'</table>':'<p class="hint">مفيش.</p>'}
 
 // ===== نقل الدليل بالـ QR =====
 const b64u=b=>{let s='';const a=new Uint8Array(b);for(let i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')};
@@ -474,6 +495,14 @@ $('#qr-scan').onclick=async()=>{let stream;try{stream=await navigator.mediaDevic
       const got=Object.keys(st.parts).length;$('#scan-cap').textContent='اتقرا '+got+' من '+st.n;
       if(got===st.n){let all='';for(let j=1;j<=st.n;j++)all+=st.parts[j];await stopScan();try{await loadChartText(await unzip(ub64u(all)))}catch(e){toast('الـ QR اتقرا غلط، جرّب تاني')}return}}
     setTimeout(tick,180)};tick()};
+
+// ===== البحث =====
+$('#pk-q').addEventListener('input',renderPicker);
+$('#pk-close').onclick=()=>{$('#picker').hidden=true;PK=null};
+$('#picker').addEventListener('click',async e=>{if(e.target.id==='picker'){$('#picker').hidden=true;PK=null;return}const b=e.target.closest('.pk-item');if(!b||!PK)return;
+  const {r,f}=PK;r[f]=b.dataset.id;if(f==='sup'&&!r.seller){const s2=byId(r[f]);if(s2)r.seller=s2.name}
+  await put(r);$('#picker').hidden=true;PK=null;renderAll()});
+$('#rev-q').addEventListener('input',renderAll);$('#acc-q').addEventListener('input',renderAcc);
 
 // ===== مثال =====
 async function addDemo(){const rec={id:'demo'+Date.now(),created:Date.now(),example:true,status:'qr',qr:true,sel:true,type:'',seller:'مورد تجريبي (مثال)',vat:'300000000000003',invno:'مثال-1',date:'08/10/2026',time:'',total:1150,vatAmt:150,exp:'',sup:'',tre:'',note:''};
