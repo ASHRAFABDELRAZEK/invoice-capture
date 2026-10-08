@@ -455,12 +455,17 @@ $('#export').onclick=async()=>{const S=pending().filter(r=>r.sel);const bad=S.fi
 
 // ===== تحديث الدليل =====
 const SNIP=`(async()=>{const get=async(r,k)=>{const m=new Map();for(let p=1;p<60;p++){const j=await(await fetch('/api2/'+r+'.json?limit=100&page='+p)).json();const d=(j.data||[]).map(x=>x[k]);const n=m.size;d.forEach(x=>m.set(x.id,x));if(!d.length||m.size===n)break}return[...m.values()]};
-const a=await get('journal_accounts','JournalAccount'),s=await get('suppliers','Supplier'),tx=await get('taxes','Tax');const act=new Set(tx.filter(t=>t.is_active=='1').map(t=>t.id));
+const a=await get('journal_accounts','JournalAccount'),cats=await get('journal_cats','JournalCat'),s=await get('suppliers','Supplier'),tx=await get('taxes','Tax');
+const act=new Set(tx.filter(t=>t.is_active=='1').map(t=>t.id));const cn={};cats.forEach(c=>cn[c.id]=c.name||'');
 const vat={};s.forEach(x=>vat[x.id]=x.bn1||'');const out=[];
-a.forEach(x=>{if(!x.name||!x.code||x.disabled!='0')return;const t=x.entity_type||'';let role='';
-if(t==='supplier'||t==='other_credit')role='sup';else if(t==='treasury'||t==='staff_petty_cash')role='tre';else if(t==='outcome_tax'){if(act.has(String(x.entity_id)))role='vat'}
-else if(t!=='asset_deprecation_expense'&&(/^5/.test(x.code)||t==='asset'||t==='purchases'||t==='purchases_shipping'))role='exp';
+a.forEach(x=>{if(!x.name||!x.code||x.disabled!='0')return;const t=x.entity_type||'';const path=String(x.parent_cat_ids||'').split(',').filter(i=>i&&i!='-1').map(i=>cn[i]||'');const P=path.join(' / ');const root=path[0]||'';let role='';
+if(t==='client'||t==='income_tax'||t==='asset_deprecation'||t==='asset_deprecation_expense')role='';
+else if(t==='outcome_tax'){if(act.has(String(x.entity_id)))role='vat'}
+else if(t==='supplier'||t==='other_credit'||/الذمم الدائنة|الموردين|موردين|مقاولين الباطن/.test(P))role='sup';
+else if(t==='treasury'||t==='staff_petty_cash'||/النقدية|الصندوق|البنوك|الخزائن|العهد/.test(P))role='tre';
+else if(/مصروف|تكاليف|تكلفة/.test(root)||/^5/.test(x.code)||t==='asset'||t==='purchases'||t==='purchases_shipping'||/الممتلكات والآلات|الأصول الثابتة/.test(P))role='exp';
 if(role)out.push({id:String(x.id),code:x.code,name:x.name.trim(),role,vat:t==='supplier'?(vat[x.entity_id]||''):''})});
+out.sort((p,q)=>p.role==='vat'&&q.role==='vat'?(/شامل/.test(p.name)?1:0)-(/شامل/.test(q.name)?1:0):0);
 const d=new Date(),at=String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
 const pt=document.title.split(' - ').map(x=>x.trim()).filter(x=>x&&!/^(daftra|error)$/i.test(x));const co=pt[pt.length-1]||location.hostname;const js=JSON.stringify({app:'jh-chart',site:location.hostname,company:co,at,acc:out});const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([js],{type:'application/json'}));l.download='chart-'+location.hostname.split('.')[0]+'.json';l.click();
 console.log('اتنزّل ملف الدليل — '+out.length+' حساب')})()`;
