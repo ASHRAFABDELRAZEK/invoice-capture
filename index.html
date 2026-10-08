@@ -358,9 +358,15 @@ const opts=(role,v,ph)=>'<option value="">'+ph+'</option>'+listRole(role).map(a=
 const pickBtn=(r,f,role,ph)=>'<button type="button" class="pick" data-act="pick" data-f="'+f+'" data-role="'+role+'">'+esc(r[f]?accLabel(r[f]):ph)+' ▾</button>';
 const norm=t=>String(t||'').replace(/[\u064B-\u0652\u0640]/g,'').replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).toLowerCase();
 const hit=(hay,q)=>{const h=norm(hay);return norm(q).split(/\s+/).filter(Boolean).every(w=>h.includes(w))};
+const STOP=new Set(['شركه','مؤسسه','مصنع','مكتب','للتجاره','تجاره','التجاريه','تجاريه','المحدوده','محدوده','ذات','مسئوليه','مسؤوليه','للمقاولات','مقاولات','العامه','عامه','و','co','ltd','est','company','trading','llc']);
+const toks=t=>norm(t).replace(/[^\u0621-\u064Aa-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>1&&!STOP.has(w)).map(w=>w.replace(/^ال(?=...)/,''));
+function similar(name,role,max){const q=[...new Set(toks(name))];if(!q.length)return[];
+  return listRole(role).map(a=>{const at=toks(a[2]);let sc=0;q.forEach(w=>{if(at.includes(w))sc+=2;else if(w.length>2&&at.some(x=>x.length>2&&(x.startsWith(w)||w.startsWith(x))))sc+=1});return {a,sc:sc/(2*q.length)}})
+   .filter(x=>x.sc>=0.4).sort((x,y)=>y.sc-x.sc).slice(0,max||6).map(x=>x.a)}
 let PK=null;
 function openPicker(r,f,role){PK={r,f,role};$('#pk-title').textContent={exp:'اختار حساب المصروف',sup:'اختار المورد',tre:'اختار الخزنة'}[role];$('#pk-q').value='';renderPicker();$('#picker').hidden=false;setTimeout(()=>$('#pk-q').focus(),50)}
-function renderPicker(){const q=$('#pk-q').value,L=listRole(PK.role).filter(a=>!q||hit(a[1]+' '+a[2]+' '+a[0]+' '+((byId(a[0])||{}).vat||''),q));
+function renderPicker(){const q=$('#pk-q').value;let L=listRole(PK.role).filter(a=>!q||hit(a[1]+' '+a[2]+' '+a[0]+' '+((byId(a[0])||{}).vat||''),q));
+  if(!q&&PK.role==='sup'&&PK.r.seller){const sm=similar(PK.r.seller,'sup',8),ids=new Set(sm.map(a=>a[0]));L=sm.concat(L.filter(a=>!ids.has(a[0])))}
   $('#pk-list').innerHTML=L.length?L.slice(0,200).map(a=>'<button type="button" class="pk-item'+(a[0]===String(PK.r[PK.f])?' on':'')+'" data-id="'+a[0]+'"><span>'+esc(a[2])+'</span><small>'+esc(a[1])+'</small></button>').join(''):'<p class="hint">مفيش نتايج. جرّب كلمة تانية أو الكود.</p>'}
 function statusChips(r){const c=[];
   if(r.status==='reading')c.push('<span class="chip">جاري القراءة…</span>');
@@ -370,7 +376,7 @@ function statusChips(r){const c=[];
   else c.push('<span class="chip w">بدون QR — اكتب البيانات</span>');
   if(r.dup)c.push('<span class="chip b">⚠ مكررة'+(r.dup==='log'?': متسجّلة قبل كده':': متصورة مرتين')+'</span>');
   if(r.vatWarn)c.push('<span class="chip b">'+esc(r.vatWarn)+'</span>');
-  if(r.vat&&!r.sup&&r.type==='j')c.push('<span class="chip w">مورد مش متسجّل في دفترة</span>');
+  if(r.vat&&!r.sup&&r.type==='j')c.push('<span class="chip w">المورد لسه مش مربوط — اختار حسابه (هيتفتكر المرة الجاية)</span>');
   return c.join('')}
 function cardHTML(r){const P=problems(r),{L}=linesOf(r),ex=r.example?'<span class="ex">مثال</span> ':'';
   return '<article class="card'+(r.sel?' sel':'')+(r.dup?' dup':'')+'" data-id="'+r.id+'">'+
@@ -379,7 +385,9 @@ function cardHTML(r){const P=problems(r),{L}=linesOf(r),ex=r.example?'<span clas
   '<div class="main"><div class="t1"><span class="name">'+ex+esc(r.seller||'مورد غير معروف')+'</span><span class="amt">'+(n2(r.total)?fmt(r.total):'—')+'</span></div>'+
   '<div class="sub">'+(r.vat?'ض: '+esc(r.vat)+' · ':'')+(r.date||'بدون تاريخ')+(n2(r.vatAmt)?' · ضريبة '+fmt(r.vatAmt):'')+'</div>'+
   '<div class="chips"><span class="chip '+(r.type==='j'?'j">قيد يومية':'v">سند صرف')+'</span>'+statusChips(r)+'</div>'+
-  (P.length?'<div class="sub" style="color:var(--warn)">ناقص: '+P.join('، ')+'</div>':'')+'</div></div>'+
+  (P.length?'<div class="sub" style="color:var(--warn)">ناقص: '+P.join('، ')+'</div>':'')+
+  (r.type==='j'&&!r.sup&&r.seller?(()=>{const sm=similar(r.seller,'sup',6);return sm.length?'<div class="sub">حسابات باسم مشابه — اختار:</div><div class="chips">'+sm.map(a=>'<button type="button" class="chip j" style="border:0;cursor:pointer;font:inherit;font-size:12px" data-act="sugg" data-id="'+a[0]+'">'+esc(a[2])+' <small>'+esc(a[1])+'</small></button>').join('')+'</div>':''})():'')+
+  '</div></div>'+
   '<details'+(P.length&&!r.example&&r.status!=='reading'&&r.open!==false?' open':'')+'><summary>البيانات والحسابات</summary><div class="grid">'+
   '<div class="full seg"><button type="button" data-act="type" data-v="v" class="'+(r.type==='v'?'on v':'')+'">سند صرف</button><button type="button" data-act="type" data-v="j" class="'+(r.type==='j'?'on j':'')+'">قيد يومية</button></div>'+
   '<label class="full" for="f-seller-'+r.id+'">اسم المورد<input id="f-seller-'+r.id+'" data-f="seller" value="'+esc(r.seller)+'"></label>'+
@@ -425,6 +433,7 @@ async function onList(e){const card=e.target.closest('.card');if(!card)return;co
   else if(a==='type'){r.type=e.target.dataset.v;if(r.type==='j'&&!r.sup)r.sup=matchSupplier(r.vat).acc;if(r.type==='v'&&!r.tre){const t=listRole('tre')[0];r.tre=t?t[0]:''}await put(r);renderAll()}
   else if(a==='askdel'){CONF.add(r.id);renderAll()} else if(a==='nodel'){CONF.delete(r.id);renderAll()}
   else if(a==='del'){CONF.delete(r.id);await del(r.id);renderAll();toast('اتمسحت')}
+  else if(a==='sugg'){r.sup=e.target.closest('[data-id]').dataset.id;await put(r);renderAll()}
   else if(a==='pick'){openPicker(r,e.target.closest('[data-f]').dataset.f,e.target.closest('[data-role]').dataset.role)}
   else if(a==='back'){r.done=0;r.sel=true;await put(r);renderAll();toast('رجعت للمراجعة')}
   }
