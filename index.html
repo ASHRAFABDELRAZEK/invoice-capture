@@ -178,6 +178,13 @@ img{max-width:100%}
       <textarea id="chart-paste" style="width:100%;min-height:90px;font:12px monospace;direction:ltr;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:9px" placeholder='{"app":"jh-chart",...}'></textarea>
       <button class="btn out" type="button" id="chart-paste-go">تحميل من النص</button></div></details>
   </div>
+  <div class="panel" style="display:flex;flex-direction:column;gap:10px">
+    <strong>نقل الدليل بين الكمبيوتر والموبايل</strong>
+    <p class="hint">على الكمبيوتر: حمّل الدليل واضغط «اعرض QR». على الموبايل: اضغط «استقبال بالكاميرا» ووجّه الكاميرا للشاشة لحد ما يخلص.</p>
+    <div class="seg"><button type="button" id="qr-show">اعرض QR (كمبيوتر)</button><button type="button" id="qr-scan">استقبال بالكاميرا (موبايل)</button></div>
+    <div id="qr-box" hidden style="display:flex;flex-direction:column;align-items:center;gap:8px"><div id="qr-img" style="background:#fff;padding:10px;border-radius:12px;max-width:100%"></div><strong id="qr-cap"></strong><button class="btn" type="button" id="qr-stop">إقفال</button></div>
+    <div id="scan-box" hidden style="display:flex;flex-direction:column;gap:8px"><video id="scan-v" playsinline muted style="width:100%;border-radius:12px;background:#000"></video><strong id="scan-cap">وجّه الكاميرا للـ QR</strong><button class="btn" type="button" id="scan-stop">إيقاف</button></div>
+  </div>
   <details class="panel"><summary>للمحاسب: طلّع ملف الدليل من دفترة</summary>
     <p class="hint">افتح حساب الشركة على دفترة من الكمبيوتر، واضغط F12 وافتح Console. الصق السكريبت ده واضغط Enter. هينزّل ملف الدليل باسم الشركة، ابعته لكل اللي شغالين على التطبيق. وكل ما تعدّل في الحسابات أو الموردين، طلّع الملف تاني وابعته.</p>
     <button class="btn out" type="button" id="copy-snip">نسخ السكريبت</button>
@@ -193,6 +200,7 @@ img{max-width:100%}
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <script>
 // ===== دليل الحسابات: بيتحمّل من ملف (مفيش بيانات شركة جوه التطبيق). الربط كله بـ id الحساب في دفترة =====
 let CHART={at:'',acc:[]};
@@ -439,6 +447,33 @@ document.addEventListener('click',async e=>{if(e.target.id==='switch-yes'){const
 function renderAcc(){const R={exp:'مصروفات',sup:'موردين',tre:'خزائن وعهد',vat:'ضريبة'};
   $('#acc-info').textContent=CHART.acc.length?'تاريخ الملف '+CHART.at+' · '+CHART.acc.length+' حساب':'لسه متحمّلش دليل — من غيره مش هتقدر تختار الحسابات';
   $('#acc-list').innerHTML=CHART.acc.length?'<table class="lines"><tr><th>id</th><th>الكود</th><th>الاسم</th><th>النوع</th><th>رقم ضريبي</th></tr>'+CHART.acc.map(a=>'<tr><td>'+esc(a.id)+'</td><td>'+esc(a.code)+'</td><td>'+esc(a.name)+'</td><td>'+(R[a.role]||'')+'</td><td>'+esc(a.vat||'')+'</td></tr>').join('')+'</table>':'<p class="hint">مفيش.</p>'}
+
+// ===== نقل الدليل بالـ QR =====
+const b64u=b=>{let s='';const a=new Uint8Array(b);for(let i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')};
+const ub64u=t=>Uint8Array.from(atob(t.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+async function zip(str){return await new Response(new Blob([str]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()}
+async function unzip(u8){return await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text()}
+let QRT=null;
+$('#qr-show').onclick=async()=>{if(!CHART.acc.length){toast('حمّل الدليل على الجهاز ده الأول');return}if(!window.qrcode){toast('مكتبة الـ QR مااتحملتش، اتأكد من النت');return}
+  const data=b64u(await zip(JSON.stringify(CHART))),N=Math.max(1,Math.ceil(data.length/900)),sz=Math.ceil(data.length/N),id=Date.now().toString(36).slice(-4);
+  const parts=[];for(let i=0;i<N;i++)parts.push('IC1|'+id+'|'+(i+1)+'|'+N+'|'+data.slice(i*sz,(i+1)*sz));
+  let k=0;const show=()=>{const q=qrcode(0,'L');q.addData(parts[k],'Byte');q.make();$('#qr-img').innerHTML=q.createSvgTag({cellSize:6,margin:2});const sv=$('#qr-img svg');if(sv){sv.style.maxWidth='100%';sv.style.height='auto'}
+    $('#qr-cap').textContent=N>1?'QR '+(k+1)+' من '+N+' — بيتغيّر لوحده':'QR واحد';k=(k+1)%N};
+  clearInterval(QRT);show();if(N>1)QRT=setInterval(show,2200);$('#qr-box').hidden=false};
+$('#qr-stop').onclick=()=>{clearInterval(QRT);$('#qr-box').hidden=true};
+let SCAN=null;
+async function stopScan(){if(SCAN){SCAN.stop=true;try{SCAN.stream.getTracks().forEach(t=>t.stop())}catch(e){}}SCAN=null;$('#scan-box').hidden=true}
+$('#scan-stop').onclick=stopScan;
+$('#qr-scan').onclick=async()=>{let stream;try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false})}catch(e){toast('مش قادر أفتح الكاميرا — اسمح للمتصفح باستخدامها');return}
+  const v=$('#scan-v');v.srcObject=stream;await v.play().catch(()=>{});$('#scan-box').hidden=false;
+  const st=SCAN={stream,stop:false,id:'',parts:{},n:0};const bd=('BarcodeDetector' in window)?new BarcodeDetector({formats:['qr_code']}):null;
+  const cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
+  const tick=async()=>{if(st.stop)return;let txt=null;
+    try{if(bd){const r=await bd.detect(v);if(r[0])txt=r[0].rawValue}else if(window.jsQR&&v.videoWidth){const sc=Math.min(1,900/v.videoWidth);cv.width=v.videoWidth*sc;cv.height=v.videoHeight*sc;cx.drawImage(v,0,0,cv.width,cv.height);const q=jsQR(cx.getImageData(0,0,cv.width,cv.height).data,cv.width,cv.height);if(q)txt=q.data}}catch(e){}
+    if(txt&&txt.startsWith('IC1|')){const [,id,i,n,d]=txt.split('|');if(st.id!==id){st.id=id;st.parts={};st.n=+n}st.parts[i]=d;
+      const got=Object.keys(st.parts).length;$('#scan-cap').textContent='اتقرا '+got+' من '+st.n;
+      if(got===st.n){let all='';for(let j=1;j<=st.n;j++)all+=st.parts[j];await stopScan();try{await loadChartText(await unzip(ub64u(all)))}catch(e){toast('الـ QR اتقرا غلط، جرّب تاني')}return}}
+    setTimeout(tick,180)};tick()};
 
 // ===== مثال =====
 async function addDemo(){const rec={id:'demo'+Date.now(),created:Date.now(),example:true,status:'qr',qr:true,sel:true,type:'',seller:'مورد تجريبي (مثال)',vat:'300000000000003',invno:'مثال-1',date:'08/10/2026',time:'',total:1150,vatAmt:150,exp:'',sup:'',tre:'',note:''};
