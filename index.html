@@ -132,14 +132,14 @@ img{max-width:100%}
       </label>
       <label class="bigbtn alt" for="in-gal">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/></svg>
-        من المعرض (أكتر من صورة)
+        صور أو PDF (أكتر من ملف)
       </label>
     </div>
     <button class="bigbtn" type="button" id="fast-scan" style="min-height:76px;flex-direction:row;gap:10px;border-style:solid;background:var(--accent);color:var(--accent-fg)">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" style="stroke:var(--accent-fg)"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10"/></svg>
       مسح سريع للـ QR (من غير تصوير)</button>
     <input id="in-cam" type="file" accept="image/*" capture="environment" hidden>
-    <input id="in-gal" type="file" accept="image/*" multiple hidden>
+    <input id="in-gal" type="file" accept="image/*,application/pdf,.pdf" multiple hidden>
     <p class="hint">صوّر الفاتورة بحيث يبان الـ QR واضح. صوّر واحدة ورا التانية، وكل صورة بتتقرا لوحدها وتستناك في «مراجعة». الفواتير اللي مش هتسجّلها دلوقتي بتفضل محفوظة على الجهاز ده.</p>
     <div class="panel" style="display:flex;flex-direction:column;gap:10px">
       <div class="bar"><strong>تثبيت الحسابات للصور الجاية</strong><span class="chip" id="pin-state">مش مثبّت</span></div>
@@ -336,7 +336,50 @@ async function addFiles(files){
   }
 }
 $('#in-cam').addEventListener('change',e=>{addFiles([...e.target.files]);e.target.value=''});
-$('#in-gal').addEventListener('change',e=>{addFiles([...e.target.files]);e.target.value=''});
+$('#in-gal').addEventListener('change',async e=>{const fs=[...e.target.files];e.target.value='';
+  const pdfs=fs.filter(f=>/pdf$/i.test(f.type)||/\.pdf$/i.test(f.name)),imgs=fs.filter(f=>!pdfs.includes(f));
+  if(imgs.length)await addFiles(imgs);for(const f of pdfs)await addPdf(f)});
+
+// ===== استيراد PDF =====
+let PDFJS=null;
+function loadPdfJs(){if(PDFJS)return PDFJS;PDFJS=new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  sc.onload=()=>{try{pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';ok(pdfjsLib)}catch(e){ko(e)}};sc.onerror=()=>{PDFJS=null;ko(new Error('net'))};document.head.appendChild(sc)});return PDFJS}
+const X=(el,...names)=>{let cur=[el];for(const n of names){const nx=[];cur.forEach(c=>[...c.children].forEach(ch=>{if(ch.localName===n)nx.push(ch)}));cur=nx;if(!cur.length)return null}return cur[0]};
+const XT=(el,...n)=>{const e=X(el,...n);return e?e.textContent.trim():''};
+function parseUBL(xml){let d;try{d=new DOMParser().parseFromString(xml,'application/xml')}catch(e){return null}const inv=d.documentElement;if(!inv||inv.localName!=='Invoice')return null;
+  const sp=X(inv,'AccountingSupplierParty','Party'),cp=X(inv,'AccountingCustomerParty','Party');
+  const tt=[...inv.children].filter(c=>c.localName==='TaxTotal').map(t=>XT(t,'TaxAmount')).filter(Boolean);
+  return {invno:XT(inv,'ID'),date:isoToDMY(XT(inv,'IssueDate')),time:(XT(inv,'IssueTime')||'').slice(0,5),
+    seller:sp?(XT(sp,'PartyLegalEntity','RegistrationName')||XT(sp,'PartyName','Name')):'',vat:digits(sp?XT(sp,'PartyTaxScheme','CompanyID'):''),
+    buyer:cp?(XT(cp,'PartyLegalEntity','RegistrationName')||XT(cp,'PartyName','Name')):'',buyerVat:digits(cp?XT(cp,'PartyTaxScheme','CompanyID'):''),
+    total:n2(XT(inv,'LegalMonetaryTotal','TaxInclusiveAmount')||XT(inv,'LegalMonetaryTotal','PayableAmount')),vatAmt:n2(tt[0]||0)}}
+async function canvasQRs(cv){const found=new Set();
+  if('BarcodeDetector' in window){try{const r=await new BarcodeDetector({formats:['qr_code']}).detect(cv);r.forEach(x=>found.add(x.rawValue))}catch(e){}}
+  if(!found.size&&window.jsQR){const cx=cv.getContext('2d',{willReadFrequently:true});const tryR=(x,y,w,h)=>{const d=cx.getImageData(x,y,w,h);const q=jsQR(d.data,w,h,{inversionAttempts:'attemptBoth'});if(q&&q.data)found.add(q.data)};
+    tryR(0,0,cv.width,cv.height);
+    for(const n of [2,3]){const w=Math.ceil(cv.width/n*1.4),h=Math.ceil(cv.height/n*1.4);for(let i=0;i<n;i++)for(let j=0;j<n;j++){const x=Math.min(cv.width-w,Math.round(i*cv.width/n-w*.15)),y=Math.min(cv.height-h,Math.round(j*cv.height/n-h*.15));tryR(Math.max(0,x),Math.max(0,y),Math.min(w,cv.width),Math.min(h,cv.height))}}}
+  return [...found]}
+async function newRec(f,img){const id='i'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  const rec=Object.assign({id,site:CHART.site||'',created:Date.now(),sel:true,type:'',seller:'',vat:'',invno:'',date:'',time:'',total:'',vatAmt:'',exp:'',sup:'',tre:'',note:'',img},f);
+  applyDefaults(rec);applyPin(rec);await put(rec);return rec}
+async function addPdf(file){toast('بيقرا '+file.name+' …');let lib;try{lib=await loadPdfJs()}catch(e){toast('مش قادر أحمّل قارئ الـ PDF — محتاج نت أول مرة');return}
+  let doc;try{doc=await lib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise}catch(e){toast('الملف ده مش PDF سليم أو عليه باسورد');return}
+  const pageImg=async(n)=>{const pg=await doc.getPage(n),vp=pg.getViewport({scale:2.2}),cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;return cv};
+  const toBlob=cv=>new Promise(ok=>{const sc=Math.min(1,1600/Math.max(cv.width,cv.height)),c2=document.createElement('canvas');c2.width=cv.width*sc;c2.height=cv.height*sc;c2.getContext('2d').drawImage(cv,0,0,c2.width,c2.height);c2.toBlob(ok,'image/jpeg',.82)});
+  let added=0;
+  // 1) XML مدفون (فواتير زاتكا PDF/A-3)
+  try{const att=await doc.getAttachments();const xs=att?Object.values(att).filter(a=>/\.xml$/i.test(a.filename||'')):[];
+    if(xs.length){const first=await toBlob(await pageImg(1));for(const a of xs){const u=parseUBL(new TextDecoder().decode(a.content));if(!u||!u.total)continue;
+      await newRec(Object.assign({status:'xml',qr:true,src:'pdf'},u),first);added++}
+      if(added){renderAll();toast('اتقرا '+added+' فاتورة من بيانات الـ PDF المدفونة ('+file.name+')');return}}}catch(e){}
+  // 2) QR من كل صفحة
+  const seen=new Set();
+  for(let n=1;n<=doc.numPages;n++){const cv=await pageImg(n);const qs=(await canvasQRs(cv)).filter(q=>!seen.has(q));const img=await toBlob(cv);let got=0;
+    for(const q of qs){seen.add(q);const t=parseTLV(q);if(!t)continue;const tm=String(t[3]||'').match(/T?(\d{2}:\d{2})/);
+      await newRec({status:'qr',qr:true,src:'pdf',seller:t[1]||'',vat:digits(t[2]),date:isoToDMY(t[3]||''),time:tm?tm[1]:'',total:n2(t[4]),vatAmt:n2(t[5]),note:'صفحة '+n},img);got++;added++}
+    if(!got){await newRec({status:'noqr',qr:false,src:'pdf',note:'صفحة '+n},img);added++}
+    renderAll()}
+  toast(file.name+': '+added+' فاتورة — راجعها في «مراجعة»')}
 
 // ===== القيود =====
 function linesOf(r){const total=n2(r.total),vat=n2(r.vatAmt),net=n2(total-vat);
@@ -370,10 +413,13 @@ function renderPicker(){const q=$('#pk-q').value;let L=listRole(PK.role).filter(
   $('#pk-list').innerHTML=L.length?L.slice(0,200).map(a=>'<button type="button" class="pk-item'+(a[0]===String(PK.r[PK.f])?' on':'')+'" data-id="'+a[0]+'"><span>'+esc(a[2])+'</span><small>'+esc(a[1])+'</small></button>').join(''):'<p class="hint">مفيش نتايج. جرّب كلمة تانية أو الكود.</p>'}
 function statusChips(r){const c=[];
   if(r.status==='reading')c.push('<span class="chip">جاري القراءة…</span>');
+  else if(r.status==='xml')c.push('<span class="chip j">PDF ✓ (بيانات كاملة)</span>');
   else if(r.qr)c.push('<span class="chip j">QR ✓</span>');
   
   else if(r.status==='badqr')c.push('<span class="chip w">QR مش فاتورة زاتكا</span>');
   else c.push('<span class="chip w">بدون QR — اكتب البيانات</span>');
+  if(r.buyerVat||r.buyer)c.push('<span class="chip">المشتري: '+esc(r.buyer||'')+' '+esc(r.buyerVat||'')+'</span>');
+  if(r.note&&r.src==='pdf')c.push('<span class="chip">'+esc(r.note)+'</span>');
   if(r.dup)c.push('<span class="chip b">⚠ مكررة'+(r.dup==='log'?': متسجّلة قبل كده':': متصورة مرتين')+'</span>');
   if(r.vatWarn)c.push('<span class="chip b">'+esc(r.vatWarn)+'</span>');
   if(r.vat&&!r.sup&&r.type==='j')c.push('<span class="chip w">المورد لسه مش مربوط — اختار حسابه (هيتفتكر المرة الجاية)</span>');
