@@ -135,6 +135,9 @@ img{max-width:100%}
         من المعرض (أكتر من صورة)
       </label>
     </div>
+    <button class="bigbtn" type="button" id="fast-scan" style="min-height:76px;flex-direction:row;gap:10px;border-style:solid;background:var(--accent);color:var(--accent-fg)">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" style="stroke:var(--accent-fg)"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10"/></svg>
+      مسح سريع للـ QR (من غير تصوير)</button>
     <input id="in-cam" type="file" accept="image/*" capture="environment" hidden>
     <input id="in-gal" type="file" accept="image/*" multiple hidden>
     <p class="hint">صوّر الفاتورة بحيث يبان الـ QR واضح. صوّر واحدة ورا التانية، وكل صورة بتتقرا لوحدها وتستناك في «مراجعة». الفواتير اللي مش هتسجّلها دلوقتي بتفضل محفوظة على الجهاز ده.</p>
@@ -220,6 +223,12 @@ img{max-width:100%}
   <div class="bar"><strong id="pk-title"></strong><button class="btn" type="button" id="pk-close">إقفال</button></div>
   <label for="pk-q">بحث بالاسم أو الكود<input id="pk-q" type="search" placeholder="اكتب جزء من الاسم أو الكود" autocomplete="off"></label>
   <div class="pk-list" id="pk-list"></div></div></div>
+<div class="sheet" id="fs" hidden style="align-items:stretch"><div class="in" style="max-height:100%;height:100%;border-radius:0">
+  <video id="fs-v" playsinline muted style="width:100%;flex:1;min-height:0;object-fit:cover;border-radius:12px;background:#000"></video>
+  <strong id="fs-cap" style="font-size:18px">وجّه الكاميرا للـ QR</strong>
+  <div class="sub" id="fs-last" style="min-height:1.5em"></div>
+  <button class="btn pri" type="button" id="fs-stop" style="min-height:52px;font-size:16px">خلصت — للمراجعة</button>
+</div></div>
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
@@ -552,6 +561,33 @@ $('#pin-exp').onclick=()=>{if(!CHART.acc.length){toast('حمّل الدليل ا
 $('#pin-cr').onclick=()=>{if(!CHART.acc.length){toast('حمّل الدليل الأول');return}const f=pinCrF();openPicker(PIN,f,f)};
 $('#pin-clear').onclick=()=>{PIN={__pin:true};savePin();toast('اتلغى التثبيت')};
 loadPin();
+
+// ===== المسح السريع =====
+let FS=null;
+function beep(ok){if(!FS||!FS.ac)return;try{const a=FS.ac,o=a.createOscillator(),g=a.createGain();o.frequency.value=ok?1000:240;g.gain.value=.18;o.connect(g);g.connect(a.destination);o.start();o.stop(a.currentTime+(ok?.12:.35))}catch(e){}
+  try{navigator.vibrate&&navigator.vibrate(ok?60:[90,60,90])}catch(e){}}
+async function fsStop(){if(!FS)return;FS.stop=true;try{FS.stream.getTracks().forEach(t=>t.stop())}catch(e){}try{FS.ac&&FS.ac.close()}catch(e){}const n=FS.n;FS=null;$('#fs').hidden=true;if(n){setTab('rev');toast('اتقرا '+n+' فاتورة')}}
+$('#fs-stop').onclick=fsStop;
+$('#fast-scan').onclick=async()=>{if(!CHART.acc.length)toast('لسه مفيش دليل — هتقدر تختار الحسابات بعدين');
+  let stream;try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},audio:false})}catch(e){toast('مش قادر أفتح الكاميرا — اسمح للمتصفح باستخدامها');return}
+  let ac=null;try{ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+  const v=$('#fs-v');v.srcObject=stream;await v.play().catch(()=>{});$('#fs').hidden=false;$('#fs-cap').textContent='وجّه الكاميرا للـ QR';$('#fs-last').textContent='';
+  const st=FS={stream,ac,stop:false,n:0,seen:new Set(),bad:0};const bd=('BarcodeDetector' in window)?new BarcodeDetector({formats:['qr_code']}):null;
+  const cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
+  const tick=async()=>{if(st.stop)return;let txt=null;
+    try{if(bd){const r=await bd.detect(v);if(r[0])txt=r[0].rawValue}else if(window.jsQR&&v.videoWidth){const sc=Math.min(1,1000/v.videoWidth);cv.width=v.videoWidth*sc;cv.height=v.videoHeight*sc;cx.drawImage(v,0,0,cv.width,cv.height);const q=jsQR(cx.getImageData(0,0,cv.width,cv.height).data,cv.width,cv.height);if(q)txt=q.data}}catch(e){}
+    if(txt&&!st.seen.has(txt)){st.seen.add(txt);const t=parseTLV(txt);
+      if(!t){beep(false);$('#fs-last').textContent='ده QR مش فاتورة ضريبية';}
+      else{const vat=digits(t[2]),date=isoToDMY(t[3]||''),total=n2(t[4]),dk=vat+'|'+date+'|'+total;
+        const dup=[...MEM.inv.values()].some(r=>(r.site||'')===(CHART.site||'')&&dupKey(r)===dk);
+        if(dup){beep(false);$('#fs-last').textContent='⚠ مكررة: '+(t[1]||'')+' — '+fmt(total)+' متسجّلة قبل كده';}
+        else{let img=null;try{const c2=document.createElement('canvas'),sc=Math.min(1,1600/Math.max(v.videoWidth,v.videoHeight));c2.width=v.videoWidth*sc;c2.height=v.videoHeight*sc;c2.getContext('2d').drawImage(v,0,0,c2.width,c2.height);img=await new Promise(ok=>c2.toBlob(ok,'image/jpeg',.82))}catch(e){}
+          const id='i'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);const tm=String(t[3]||'').match(/T?(\d{2}:\d{2})/);
+          const rec={id,site:CHART.site||'',created:Date.now(),status:'qr',qr:true,sel:true,type:'',seller:t[1]||'',vat,invno:'',date,time:tm?tm[1]:'',total,vatAmt:n2(t[5]),exp:'',sup:'',tre:'',note:'',img};
+          applyDefaults(rec);applyPin(rec);await put(rec);st.n++;beep(true);
+          $('#fs-cap').textContent='اتقرا '+st.n+' فاتورة ✓';$('#fs-last').textContent=(t[1]||'مورد')+' — '+fmt(total);renderAll();
+          await new Promise(r=>setTimeout(r,700));}}}
+    setTimeout(tick,150)};tick()};
 
 // ===== مثال =====
 async function addDemo(){const rec={id:'demo'+Date.now(),site:CHART.site||'',created:Date.now(),example:true,status:'qr',qr:true,sel:true,type:'',seller:'مورد تجريبي (مثال)',vat:'300000000000003',invno:'مثال-1',date:'08/10/2026',time:'',total:1150,vatAmt:150,exp:'',sup:'',tre:'',note:''};
