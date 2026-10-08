@@ -173,7 +173,10 @@ img{max-width:100%}
     <p class="hint">المحاسب بيبعتلك ملف الدليل (اسمه بيبدأ بـ <b>chart-</b>) (على الواتساب مثلاً). احفظه على الموبايل وبعدين اختاره من هنا.</p>
     <div class="confirm" id="switch-box" hidden><span id="switch-txt"></span><button class="btn danger" type="button" id="switch-yes">أيوه غيّر</button><button class="btn" type="button" id="switch-no">لأ</button></div>
     <label class="btn pri" for="chart-file" style="display:flex;align-items:center;justify-content:center">اختيار ملف الدليل</label>
-    <input id="chart-file" type="file" accept=".json,application/json" hidden>
+    <input id="chart-file" type="file" hidden>
+    <details><summary>أو الصق محتوى الملف</summary><div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">
+      <textarea id="chart-paste" style="width:100%;min-height:90px;font:12px monospace;direction:ltr;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:9px" placeholder='{"app":"jh-chart",...}'></textarea>
+      <button class="btn out" type="button" id="chart-paste-go">تحميل من النص</button></div></details>
   </div>
   <details class="panel"><summary>للمحاسب: طلّع ملف الدليل من دفترة</summary>
     <p class="hint">افتح حساب الشركة على دفترة من الكمبيوتر، واضغط F12 وافتح Console. الصق السكريبت ده واضغط Enter. هينزّل ملف الدليل باسم الشركة، ابعته لكل اللي شغالين على التطبيق. وكل ما تعدّل في الحسابات أو الموردين، طلّع الملف تاني وابعته.</p>
@@ -411,18 +414,22 @@ if(t==='supplier'||t==='other_credit')role='sup';else if(t==='treasury'||t==='st
 else if(t!=='asset_deprecation_expense'&&(/^5/.test(x.code)||t==='asset'||t==='purchases'||t==='purchases_shipping'))role='exp';
 if(role)out.push({id:String(x.id),code:x.code,name:x.name.trim(),role,vat:t==='supplier'?(vat[x.entity_id]||''):''})});
 const d=new Date(),at=String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
-const co=(document.title.split(' - ').slice(-2,-1)[0]||location.hostname).trim();const js=JSON.stringify({app:'jh-chart',site:location.hostname,company:co,at,acc:out});const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([js],{type:'application/json'}));l.download='chart-'+location.hostname.split('.')[0]+'.json';l.click();
+const pt=document.title.split(' - ').map(x=>x.trim()).filter(x=>x&&!/^daftra$/i.test(x));const co=pt[pt.length-1]||location.hostname;const js=JSON.stringify({app:'jh-chart',site:location.hostname,company:co,at,acc:out});const l=document.createElement('a');l.href=URL.createObjectURL(new Blob([js],{type:'application/json'}));l.download='chart-'+location.hostname.split('.')[0]+'.json';l.click();
 console.log('اتنزّل ملف الدليل — '+out.length+' حساب')})()`;
 $('#copy-snip').onclick=async()=>{try{await navigator.clipboard.writeText(SNIP);toast('اتنسخ السكريبت')}catch(e){const b=$('#snip-box');b.hidden=false;b.value=SNIP;b.select();toast('اختار النص وانسخه بإيدك')}};
 let confirmSwitch=null;
 function setChart(c){CHART=c;try{localStorage.setItem('jh-chart',JSON.stringify(c))}catch(e){} renderAll()}
-$('#chart-file').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;let c;
-  try{c=JSON.parse(await f.text())}catch(x){toast('الملف ده مش ملف الدليل');return}
-  if(!c||c.app!=='jh-chart'||!Array.isArray(c.acc)||!c.acc.length){toast('الملف ده مش ملف الدليل');return}
+function parseChart(txt){txt=String(txt||'').replace(/^﻿/,'').trim();const i=txt.indexOf('{'),j=txt.lastIndexOf('}');
+  if(i<0||j<i)return {err:'الملف فاضي أو مش JSON (أوله: '+txt.slice(0,30)+')'};let c;try{c=JSON.parse(txt.slice(i,j+1))}catch(x){return {err:'الملف مقطوع أو اتغيّر أثناء الإرسال'}}
+  if(!c||!Array.isArray(c.acc)||!c.acc.length)return {err:'الملف مفيهوش حسابات'};return {c}}
+async function loadChartText(txt){const r=parseChart(txt);if(r.err){toast('مش قادر أقرا الدليل: '+r.err);return}const c=r.c;
   const switching=CHART.site&&c.site&&CHART.site!==c.site;
   if(switching&&pending().length&&!confirmSwitch){confirmSwitch=c;renderAll();$('#switch-box').hidden=false;$('#switch-txt').textContent='عندك '+pending().length+' فاتورة مستنية على «'+(CHART.company||CHART.site)+'». تكمّل وتغيّر الشركة؟';return}
-  confirmSwitch=null;
-  await applyChart(c);});
+  confirmSwitch=null;await applyChart(c)}
+$('#chart-paste-go').onclick=()=>{loadChartText($('#chart-paste').value);$('#chart-paste').value=''};
+$('#chart-file').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;let t='';try{t=await f.text()}catch(x){toast('مش قادر أفتح الملف');return}
+  loadChartText(t)});
+//await applyChart(c);});
 async function applyChart(c){c.acc.forEach(a=>a.id=String(a.id));
   const gone=[...MEM.inv.values()].filter(r=>!r.done&&[r.exp,r.sup,r.tre].some(id=>id&&!c.acc.find(a=>a.id===String(id))));
   setChart(c);for(const r of pending())if(!r.exp&&!r.sup){applyDefaults(r);await put(r)}renderAll();
